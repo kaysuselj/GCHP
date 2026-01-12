@@ -13,7 +13,11 @@ list(APPEND CMAKE_MODULE_PATH
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake
   ${CMAKE_CURRENT_SOURCE_DIR}/ESMA_cmake 
   ${CMAKE_CURRENT_SOURCE_DIR}/ESMA_cmake/ecbuild/cmake
+  /nobackup/ksuselj1/esmf-ESMF_8_2_0/cmake/FindESMF.cmake   #add ESMF
 )
+#Add ESMF HEADERS_DIR
+set(ESMF_HEADERS_DIR "/nobackup/ksuselj1/esmf-ESMF_8_2_0/src/include")
+include_directories(${ESMF_HEADERS_DIR})
 
 # Run directory
 set(RUNDIR "" CACHE PATH "Path(s) to run directory (semicolon separated list). Specifies install locations for gchp")
