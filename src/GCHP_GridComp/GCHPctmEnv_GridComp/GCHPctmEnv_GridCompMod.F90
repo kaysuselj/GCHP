@@ -721,7 +721,7 @@ module GCHPctmEnv_GridComp
       endif
 
 #ifdef ADJOINT
-      if (reverseTime == 1 .and. MAPL_Am_I_Root() .and. firstAdjointPLEPrint) then
+   if (MAPL_Am_I_Root() .and. firstAdjointPLEPrint) then
          p0sMin = minval(PLE0_EXPORT(:,:,LM))
          p0sMax = maxval(PLE0_EXPORT(:,:,LM))
          p1sMin = minval(PLE1_EXPORT(:,:,LM))
