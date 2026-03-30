@@ -220,7 +220,7 @@ contains
                                   __RC__ )
 
       CALL MAPL_AddConnectivity ( GC,                          &
-                      SHORT_NAME = (/ 'Met_AIRDEN' /), &
+                      SHORT_NAME = (/ 'ADV_AIRDEN' /), &
                       DST_ID = ADV,                &
                       SRC_ID = CHEM,               &
                       __RC__ )
