@@ -219,6 +219,12 @@ contains
                                   SRC_ID = ADV,                &
                                   __RC__ )
 
+      CALL MAPL_AddConnectivity ( GC,                          &
+                      SHORT_NAME = (/ 'Met_AIRDEN' /), &
+                      DST_ID = ADV,                &
+                      SRC_ID = CHEM,               &
+                      __RC__ )
+
       CALL MAPL_TerminateImport    ( GC,                         &
                                      SHORT_NAME = (/'TRADV'/), &
                                      CHILD = ADV,                &

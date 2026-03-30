@@ -581,6 +581,9 @@ module GCHPctmEnv_GridComp
       _VERIFY(STATUS)
       call prepare_sphu_export(IMPORT, EXPORT, RC=STATUS)
       _VERIFY(STATUS)
+      if (MAPL_Am_I_Root()) then
+         write(*,*) ' GIGCenv dt before prepare_massflux_exports: ', dt
+      endif
       call prepare_massflux_exports(IMPORT, EXPORT, PLE, dt, RC=STATUS)
       _VERIFY(STATUS)
 
@@ -629,6 +632,10 @@ module GCHPctmEnv_GridComp
       real(r8), pointer, dimension(:,:,:) :: PLE1_EXPORT    => null()
       real(r8), pointer, dimension(:,:,:) :: DryPLE0_EXPORT => null()
       real(r8), pointer, dimension(:,:,:) :: DryPLE1_EXPORT => null()
+   #ifdef ADJOINT
+      logical, save :: firstAdjointPLEPrint = .true.
+      real(r8) :: p0sMin, p0sMax, p1sMin, p1sMax
+   #endif
 
       !================================
       ! prepare_ple_exports starts here
@@ -712,6 +719,19 @@ module GCHPctmEnv_GridComp
       else
          PLE => DryPLE0_Export
       endif
+
+#ifdef ADJOINT
+      if (reverseTime == 1 .and. MAPL_Am_I_Root() .and. firstAdjointPLEPrint) then
+         p0sMin = minval(PLE0_EXPORT(:,:,LM))
+         p0sMax = maxval(PLE0_EXPORT(:,:,LM))
+         p1sMin = minval(PLE1_EXPORT(:,:,LM))
+         p1sMax = maxval(PLE1_EXPORT(:,:,LM))
+         write(*,*) ' GIGCenv ADJOINT_PLE first step: ',                      &
+                    'PLE0_sfc_min=', p0sMin, ' PLE0_sfc_max=', p0sMax,       &
+                    ' PLE1_sfc_min=', p1sMin, ' PLE1_sfc_max=', p1sMax
+         firstAdjointPLEPrint = .false.
+      endif
+#endif
 
       _RETURN(ESMF_SUCCESS)
 
