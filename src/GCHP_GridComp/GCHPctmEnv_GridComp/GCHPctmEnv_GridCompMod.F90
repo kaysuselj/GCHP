@@ -952,7 +952,10 @@ module GCHPctmEnv_GridComp
          VCr8  = dble(VC)
          
 #ifdef ADJOINT
-         if (.not. firstRun) THEN
+         ! In a reverse (adjoint) run the first call is at the end of the window,
+         ! where no forward step exists, so no mass fluxes are computed there.
+         ! A forward run (dt > 0) computes them at every step, as standard GCHP.
+         if (.not. firstRun .or. dt > 0.0_r8) THEN
 #endif
             ! Calculate mass fluxes and courant numbers
             call fv_computeMassFluxes(UCr8, VCr8, PLE, &
