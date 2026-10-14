@@ -250,6 +250,9 @@ module GCHP_GridCompMod
   use MAPL_Mod
   use pFlogger, only: logging, Logger
   use CHEM_GridCompMod,    only : AtmosChemSetServices => SetServices
+#ifdef ADJOINT
+  use CHEM_GridCompMod,    only : Adjoint_RefreshExports
+#endif
   use AdvCore_GridCompMod, only : AtmosAdvSetServices  => SetServices
   use GCHPctmEnv_GridComp, only : EctmSetServices      => SetServices
 
@@ -442,6 +445,14 @@ contains
                                   DST_ID = ADV,                 &
                                   SRC_ID = CHEM,                &
                                   __RC__ )
+
+#ifdef ADJOINT
+      CALL MAPL_AddConnectivity ( GC,                          &
+                      SHORT_NAME = (/ 'ADV_AIRDEN' /), &
+                      DST_ID = ADV,                &
+                      SRC_ID = CHEM,               &
+                      __RC__ )
+#endif
 
       CALL MAPL_TerminateImport    ( GC,                         &
                                      SHORT_NAME = (/'TRADV'/), &
@@ -956,6 +967,12 @@ contains
                   'GIGC, after  Advection: ', RC=STATUS )
        _VERIFY(STATUS)
     endif
+
+    ! History copy of the adjoint tracers: refresh it after the advection
+    ! adjoint, so that the record at clock time t holds the adjoint after the
+    ! whole step (physics and advection)
+    call Adjoint_RefreshExports( RC=STATUS )
+    _VERIFY(STATUS)
 
     ENDIF
 #endif

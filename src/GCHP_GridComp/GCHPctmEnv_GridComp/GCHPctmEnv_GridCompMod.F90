@@ -121,6 +121,9 @@ module GCHPctmEnv_GridComp
    logical :: met_humidity_is_top_down
    integer :: use_total_air_pressure_in_advection
    integer :: correct_mass_flux_for_humidity
+#ifdef ADJOINT
+   logical :: reverse_run_forward_massflux = .true.  ! see ADV_ADJ_MASSFLUX in Run
+#endif
    
    class(Logger), pointer :: lgr => null()
 !
@@ -987,6 +990,7 @@ module GCHPctmEnv_GridComp
       
 #ifdef ADJOINT
       integer :: reverseTime
+      character(len=ESMF_MAXSTR) :: advAdjMassFlux
 #endif
 
       !================================
@@ -1028,6 +1032,29 @@ module GCHPctmEnv_GridComp
          WRITE(*,*) ' GIGCenv swapping timestep sign.'
          dt = -dt
       ENDIF
+
+      ! Mass fluxes of a reverse run (GCHP.rc, ADV_ADJ_MASSFLUX:)
+      !   forward  (default): the mass fluxes of the forward step with the sign
+      !                       changed, so that the adjoint moves air across
+      !                       every cell face exactly as the forward run did
+      !   reversed          : mass fluxes recomputed for the reversed wind
+      !                       (earlier behaviour); they differ from the forward
+      !                       ones wherever the layer thickness changes between
+      !                       neighbouring cells, because the flux is built from
+      !                       the thickness of the upwind cell
+      call MAPL_GetResource( ggState,              &
+                             advAdjMassFlux,       &
+                             'ADV_ADJ_MASSFLUX:',  &
+                             default='forward',    &
+                             RC=STATUS )
+      _VERIFY(STATUS)
+      if ( trim(advAdjMassFlux) /= 'forward' .and. &
+           trim(advAdjMassFlux) /= 'reversed' ) then
+         _ASSERT(.false., 'ADV_ADJ_MASSFLUX must be forward or reversed')
+      endif
+      reverse_run_forward_massflux = ( trim(advAdjMassFlux) == 'forward' )
+      IF(MAPL_Am_I_Root() .and. firstRun) &
+           WRITE(*,*) ' GIGCenv ADV_ADJ_MASSFLUX: ', trim(advAdjMassFlux)
 #endif
 
       ! Compute the exports
@@ -1035,6 +1062,11 @@ module GCHPctmEnv_GridComp
       _VERIFY(STATUS)
       call prepare_sphu_export(IMPORT, EXPORT, RC=STATUS)
       _VERIFY(STATUS)
+#ifdef ADJOINT
+      if (MAPL_Am_I_Root()) then
+         write(*,*) ' GIGCenv dt before prepare_massflux_exports: ', dt
+      endif
+#endif
       call prepare_massflux_exports(IMPORT, EXPORT, PLE, dt, RC=STATUS)
       _VERIFY(STATUS)
 
@@ -1116,6 +1148,11 @@ module GCHPctmEnv_GridComp
       real(r4), pointer, dimension(:,:,:) :: PLE1_R4_EXPORT    => null()
       real(r4), pointer, dimension(:,:,:) :: DryPLE0_R4_EXPORT => null()
       real(r4), pointer, dimension(:,:,:) :: DryPLE1_R4_EXPORT => null()
+
+#ifdef ADJOINT
+      logical, save :: firstAdjointPLEPrint = .true.
+      real(r8) :: p0sMin, p0sMax, p1sMin, p1sMax
+#endif
 
       !================================
       ! prepare_ple_exports starts here
@@ -1211,6 +1248,19 @@ module GCHPctmEnv_GridComp
       else
          PLE => DryPLE0_Export
       endif
+
+#ifdef ADJOINT
+      if (MAPL_Am_I_Root() .and. firstAdjointPLEPrint) then
+         p0sMin = minval(PLE0_EXPORT(:,:,LM))
+         p0sMax = maxval(PLE0_EXPORT(:,:,LM))
+         p1sMin = minval(PLE1_EXPORT(:,:,LM))
+         p1sMax = maxval(PLE1_EXPORT(:,:,LM))
+         write(*,*) ' GIGCenv ADJOINT_PLE first step: ',                      &
+                    'PLE0_sfc_min=', p0sMin, ' PLE0_sfc_max=', p0sMax,       &
+                    ' PLE1_sfc_min=', p1sMin, ' PLE1_sfc_max=', p1sMax
+         firstAdjointPLEPrint = .false.
+      endif
+#endif
 
       _RETURN(ESMF_SUCCESS)
 
@@ -1354,6 +1404,7 @@ module GCHPctmEnv_GridComp
 
 #ifdef ADJOINT
       logical, save :: firstRun = .true.
+      real(r8), allocatable, dimension(:,:,:) :: MFXfwd, MFYfwd, CXfwd, CYfwd
 #endif
 
       !=====================================
@@ -1451,11 +1502,30 @@ module GCHPctmEnv_GridComp
               MFX_EXPORT, MFY_EXPORT, &
               CX_EXPORT, CY_EXPORT, dt)
 #else
-         if (.not. firstRun) THEN
+         ! In a reverse (adjoint) run the first call is at the end of the window,
+         ! where no forward step exists, so no mass fluxes are computed there.
+         ! A forward run (dt > 0) computes them at every step, as standard GCHP.
+         if (.not. firstRun .or. dt > 0.0_r8) THEN
             ! Calculate mass fluxes and courant numbers
             call fv_computeMassFluxes(UCr8, VCr8, PLE, &
                  MFX_EXPORT, MFY_EXPORT, &
                  CX_EXPORT, CY_EXPORT, dt)
+            ! Reverse run: keep the Courant numbers of the reversed wind from
+            ! the call above, but replace the mass fluxes by those of the
+            ! forward step (same winds and pressure edges, positive time
+            ! step) with the sign changed.
+            if ( dt < 0.0_r8 .and. reverse_run_forward_massflux ) then
+               ALLOCATE( MFXfwd(is:ie, js:je, lm), MFYfwd(is:ie, js:je, lm), &
+                         CXfwd (is:ie, js:je, lm), CYfwd (is:ie, js:je, lm), &
+                         STAT=STATUS )
+               _VERIFY(STATUS)
+               call fv_computeMassFluxes(UCr8, VCr8, PLE,   &
+                                         MFXfwd, MFYfwd,    &
+                                         CXfwd, CYfwd, -dt)
+               MFX_EXPORT = -MFXfwd
+               MFY_EXPORT = -MFYfwd
+               DEALLOCATE( MFXfwd, MFYfwd, CXfwd, CYfwd )
+            endif
          endif
          firstRun = .false.
 #endif
