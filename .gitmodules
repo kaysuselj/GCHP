@@ -24,7 +24,8 @@
 	branch = adjoint_fixes
 [submodule "HEMCO"]
 	path = src/GCHP_GridComp/GEOSChem_GridComp/HEMCO/HEMCO
-	url = https://github.com/geoschem/HEMCO.git
+	url = https://github.com/kaysuselj/HEMCO_adjoint.git
+	branch = adjoint_fixes
 [submodule "yaFyaml"]
 	path = src/yaFyaml
 	url = https://github.com/geoschem/yaFyaml.git
