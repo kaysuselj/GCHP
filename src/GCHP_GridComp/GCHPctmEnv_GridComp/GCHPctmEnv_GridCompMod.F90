@@ -51,6 +51,7 @@ module GCHPctmEnv_GridComp
    logical :: meteorology_vertical_index_is_top_down
    integer :: use_total_air_pressure_in_advection
    integer :: correct_mass_flux_for_humidity
+   logical :: reverse_run_forward_massflux = .true.  ! see ADV_ADJ_MASSFLUX in Run
    
    class(Logger), pointer :: lgr => null()
 !
@@ -533,6 +534,7 @@ module GCHPctmEnv_GridComp
       
 #ifdef ADJOINT
       integer :: reverseTime
+      character(len=ESMF_MAXSTR) :: advAdjMassFlux
 #endif
 
       !================================
@@ -574,6 +576,29 @@ module GCHPctmEnv_GridComp
          WRITE(*,*) ' GIGCenv swapping timestep sign.'
          dt = -dt
       ENDIF
+
+      ! Mass fluxes of a reverse run (GCHP.rc, ADV_ADJ_MASSFLUX:)
+      !   forward  (default): the mass fluxes of the forward step with the sign
+      !                       changed, so that the adjoint moves air across
+      !                       every cell face exactly as the forward run did
+      !   reversed          : mass fluxes recomputed for the reversed wind
+      !                       (earlier behaviour); they differ from the forward
+      !                       ones wherever the layer thickness changes between
+      !                       neighbouring cells, because the flux is built from
+      !                       the thickness of the upwind cell
+      call MAPL_GetResource( ggState,              &
+                             advAdjMassFlux,       &
+                             'ADV_ADJ_MASSFLUX:',  &
+                             default='forward',    &
+                             RC=STATUS )
+      _VERIFY(STATUS)
+      if ( trim(advAdjMassFlux) /= 'forward' .and. &
+           trim(advAdjMassFlux) /= 'reversed' ) then
+         _ASSERT(.false., 'ADV_ADJ_MASSFLUX must be forward or reversed')
+      endif
+      reverse_run_forward_massflux = ( trim(advAdjMassFlux) == 'forward' )
+      IF(MAPL_Am_I_Root() .and. firstRun) &
+           WRITE(*,*) ' GIGCenv ADV_ADJ_MASSFLUX: ', trim(advAdjMassFlux)
 #endif
 
       ! Compute the exports
@@ -862,6 +887,7 @@ module GCHPctmEnv_GridComp
 
 #ifdef ADJOINT
       logical, save :: firstRun = .true.
+      real(r8), allocatable, dimension(:,:,:) :: MFXfwd, MFYfwd, CXfwd, CYfwd
 #endif
 
       !=====================================
@@ -962,6 +988,22 @@ module GCHPctmEnv_GridComp
                                       MFX_EXPORT, MFY_EXPORT, & 
                                       CX_EXPORT, CY_EXPORT, dt)
 #ifdef ADJOINT
+            ! Reverse run: keep the Courant numbers of the reversed wind from
+            ! the call above, but replace the mass fluxes by those of the
+            ! forward step (same winds and pressure edges, positive time
+            ! step) with the sign changed.
+            if ( dt < 0.0_r8 .and. reverse_run_forward_massflux ) then
+               ALLOCATE( MFXfwd(is:ie, js:je, lm), MFYfwd(is:ie, js:je, lm), &
+                         CXfwd (is:ie, js:je, lm), CYfwd (is:ie, js:je, lm), &
+                         STAT=STATUS )
+               _VERIFY(STATUS)
+               call fv_computeMassFluxes(UCr8, VCr8, PLE,   &
+                                         MFXfwd, MFYfwd,    &
+                                         CXfwd, CYfwd, -dt)
+               MFX_EXPORT = -MFXfwd
+               MFY_EXPORT = -MFYfwd
+               DEALLOCATE( MFXfwd, MFYfwd, CXfwd, CYfwd )
+            endif
          endif
          firstRun = .false.
 #endif
