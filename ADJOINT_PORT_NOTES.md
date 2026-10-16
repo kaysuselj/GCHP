@@ -185,3 +185,88 @@ forcing loader (`Load_OCO2_Adjoint_Forcing`) does not use History and is unaffec
 4. P1 column tests (advection off): initial-CO2 adjoint vs FD (2.1, 2.5), surface-flux vs FD
    with PBL + convection (2.3).
 5. T6 / P2 advection tests, then P3.
+
+## 5. Pleiades results
+
+Session on Pleiades from 2026-10-14 (layout: `gchp_14.8.0_adj/code` = this clone, `gchp_14.8.0_adj/tests_final`).
+
+### 5.1 Build environment
+- No ESMF module on Pleiades: ESMF 8.6.1 built from source (`/nobackup/ksuselj1/esmf-ESMF_8_6_1_intel2023`,
+  PIO/LAPACK internal, netCDF via nc-config). The global `ESMF_SITE=NAS` of the Pleiades environment needs a
+  `build_config/Linux.intel.NAS` directory (copy of `Linux.intel.default`) for `make install`.
+- Compiler: Intel 2023.2.1 (`comp-intel/2023.2.1`, ifort 2021.10), HPE MPT 2.30, netCDF-C 4.4.1.1 /
+  netCDF-Fortran 4.4.4 (`netcdf/4.4.1.1_mpt`), CMake 3.26.5. Environment: `gchp_14.8.0_adj/gchp_14.8.0_env.sh`
+  (load the modules one by one: a single `module load` line with all of them silently loads nothing).
+- MAPL 2.69 needs udunits2: `/nasa/gdl/udunits_2.2.28`, passed as
+  `-Dudunits_LIBRARY=.../lib/libudunits2.so -Dudunits_INCLUDE_DIR=.../include -Dudunits_XML_PATH=.../share/udunits/udunits2.xml`.
+- Configure: `cmake .. -DMECH=carbon -DADJOINT=yes -DREVERSE_OPERATORS=yes <udunits options>` in `build_adj`.
+
+### 5.2 Compile fixes
+| # | File | Fix | Why |
+|---|---|---|---|
+| 1 | MAPL `gridcomps/History/Sampler/MAPL_MaskMod.F90` (upstream MAPL code, not adjoint) | removed the two `use pflogger, only: Logger, logging` inside the separate-module-procedure interface bodies (`MaskSampler_from_config`, `create_Geosat_grid_find_mask`); `Logger`/`logging` come from the host module's own `use pflogger` | internal compiler error in ifort 19.1 (2020.4) and 2021.10 (2023.2.1), also at -O0; ifx 2023.2 internal error; ifx 2025.3 rejects it (error #6405, same named entity LOGGER). No behaviour change. |
+| 2 | geos-chem `GeosCore/convection_mod.F90` (`DO_RAS_CLOUD_CONVECTION`) | the adjoint `ELSE` branch of `IF (is_forward_run)` (from `NA=Input_Opt%NFD` to the end of the reverse sweep) is now inside `#ifdef ADJOINT ... #endif` | the plain (non-ADJOINT) build failed: the branch uses `QB0`, `branch`, `ad_count`, ... (declared only under `#ifdef ADJOINT`), `Input_Opt%NFD` and `State_Chm%SpeciesAdj`. ADJOINT build: code unchanged. |
+| 3 | geos-chem `Interfaces/GCHP/Adjoint_Utils_Mod.F90` | whole module inside `#ifdef ADJOINT` (empty object in plain builds) | plain build: uses ADJOINT-only `Input_Opt` fields (`NFD`, `IFD`, `IS_FD_*`, ...); its only user (`gchp_chunk_mod.F90`) already has the `USE` under `#ifdef ADJOINT`. |
+| 4 | geos-chem `Interfaces/GCHP/gchp_chunk_mod.F90` (`GCHP_PRINT_MET`, debug print) | the two WRITEs of `SurfaceFluxAdj`/`SpeciesAdj` inside `#ifdef ADJOINT` | plain build: ADJOINT-only `State_Chm` fields. |
+| 5 | MAPL `gridcomps/History/MAPL_HistoryGridComp.F90` (end_alarm for collections without end_date) | backwards collections: `end_alarm` created disabled (`enabled=.false., sticky=.false.`), as in the GCHP MAPL 2.26 | MAPL 2.55+ creates it at CurrTime (= window end in a reverse run); it rings at the last reverse step ("Not Writing alarm ... because end_alarm is ringing") so the adjoint record at the window START (the initial-condition sensitivity) was never written. The MAPL source itself flags this ("Might need to be adapted for GCHP adjoint"). Forward collections unchanged (T0 stays valid). Binary `build_adj/bin/gchp.adj_20261015`. |
+
+### 5.3 Builds
+- ADJOINT build (`build_adj`): compiles and links with fix 1 only; adjoint code is in the binary (ADV_ADJ_* keys,
+  Load_OCO2, Tapenade PUSH/POP symbols). Frozen as `build_adj/bin/gchp.adj_20261014` (built before fix 2, which
+  does not change ADJOINT builds).
+- Plain build (`build_plain`): needed fix 2.
+
+- Plain build (`build_plain`) compiles with fixes 1-4: `build_plain/bin/gchp.plain_20261014`. The ADJOINT build
+  was recompiled from the same source (fixes 2-4 do not change ADJOINT code): `build_adj/bin/gchp.adj_20261014`.
+
+### 5.4 Run directory (tests_final/rundir_carbon_template)
+- `createRunDir.sh`: carbon, all species (as 14.5.3: CO2 = species 3 = advected 3, so the `NA = NFD` caveat of 2.3 does
+  not apply), MERRA-2. Met: 14.8.0 reads the same 73 MERRA-2 fields as 14.5.3 (only PS2/SPHU2/TMPU2 read frequency
+  follows the dynamic step); MetDir -> the 4x5 archive `/nobackupp17/lwu5/GCHP/ExtData/GEOS_4x5/MERRA2`, file names
+  `.05x0625.` -> `.4x5.` in ExtData.rc. All met files for Jan-Mar 2016 present.
+- HEMCO inputs from `GC_DATA_ROOT=/nobackup/ksuselj1/geos_chem_new/ExtData`: 215 of 225 ExtData entries present;
+  missing GFEIv3 / GRPI (new CH4 inventories) and GFAS. Switched off GFEIv3, GRPI, GFAS; GFED on (fires). No effect on CO2.
+- `tests_final/common/make_rundir.sh`: C24, 24 cores, 1800 s steps, start 2016-01-01, restart link.
+- Restarts: `tests_final/common/GEOSChem.Restart.20160101_0000z.c24.nc4` (14.5.3 restart, with DELP_DRY) and
+  `...c24.noDELP.nc4` (DELP_DRY = 0, for adjoint/FD tests, notes 2.5).
+- Batch jobs: non-login shells have no `module` command; the env file now sources `/usr/share/Modules/init/bash`;
+  14.8.0's `setCommonRunSettings.sh` and `setRestartLink.sh` must be sourced without `set -eu`.
+
+### 5.5 Test results
+| Test | Setup | Result |
+|---|---|---|
+| T0 forward ADJOINT build vs plain build | CO2-only carbon run dir (`rundir_co2_template`), C24, 24 cores, 1 day, 1800 s, advection + convection + PBL mixing on, chemistry/deposition/non-local mixing off, restart with DELP_DRY (start-up scaling active in both) | **PASS: bit-identical**, 24 hourly SpeciesConc (instantaneous) and 216 emission fields (`tests_final/T0_adj_vs_plain/T0_report.txt`) |
+| P1 column PBL mixing (`pbl`) | `tests_final/P1_columns/run_P1.pbs`, C24 CO2-only, 1 day, 1800 s, advection off, PBL mixing on; fluxes as the 14.5.3 tests/OSSE (template switched 2026-10-15: FF_regrid2, ECCO-Darwin, NBE CARDAMOM, GPP ORCHIDEE, TER CLASS-CTEM; sigma 750 on TER); conc seeds LAYER r=1,10,20,30; FD from 14.8.0 forward runs (`gchp.adj_20261015`) | **PASS**, same as 14.5.3: conc median 1.000000, max abs(x-1) 1.0e-6; flux (r=1,10, N=1324/624 as 14.5.3): median 1.000011 after MW_CO2/MW_air, max abs(x-1) 1.2e-5; FD surface response 4.242e-5 (14.5.3: 4.243e-5) |
+| P1 column PBL + convection (`pblconv`) | as above with convection on | **PASS**, same as 14.5.3: conc r=1..30 max abs(x-1) 1.2e-6; flux r=1..30 (N=1324/1014/498/318; 14.5.3 1324/1015/497/318) median 1.000011, max abs(x-1) 1.2e-5; FD surface response 4.179e-5 (14.5.3: 4.180e-5) |
+| P1c forcing from file, 6 vs 24 cores / P1d forcing timing | `tests_final/P1_columns/run_P1cd.pbs` on the pblconv setup: OSSE forcing files of 2016-01-01 (copied from E1.3); synthetic level-10 forcing file stamped at the window end vs the LAYER seed r=10 | **PASS, as 14.5.3**: 6 and 24 cores bit-identical (170 obs read, 170 deposited); file seed = built-in seed bit-identical in all 49 records (`pblconv/results_P1cd/P1c_compare.txt`, `P1d_compare.txt`) |
+| P2a face edge/corner, 8 m/s zonal wind | `tests_final/P2_advection/run_P2.pbs` (EXP=P2a): advection only, C24, 5 days, idealized met (MetIdealized), restart DELP_DRY=0; receptors, seeds and the 57 perturbed cells of the 14.5.3 `_ref` experiment; FD from 14.8.0 forwards; ADV_ADJ_METHOD reverse_wind_pure, airmass, massflux forward | **Same as 14.5.3.** FD values and J_base identical to 14.5.3 to >= 5 digits (forward advection unchanged for these winds). Own perturbations n=52: median |rel err| 21.8 % (14.5.3: 21.8 %), rms 164.7 % (163.9 %), corr 0.9969 (0.9969), sum ratio 1.0269 (1.0267). Per receptor (median, 14.8.0 / 14.5.3): westofseam 1.8/1.9 %, onseam 22.4/22.3 %, eastofseam 8.3/8.1 %, corner_west 50.4/50.6 %, corner_on 37.1/37.0 %, corner_east 80.8/80.3 %. The face-edge/corner adjoint error of 14.5.3 is unchanged in 14.8.0. Report `P2_advection/P2a/results/report.txt` |
+| P2c tilted rotation | `run_P2.pbs` EXP=P2c (airmass) and EXP=P2c_dpadv (ADJ_WEIGHT=dpadv), MetIdealized_TiltedRot, 20 cells of the 14.5.3 `_ref` experiment | FD identical to 14.5.3. inside_f1: median 4.5 % (airmass) / 3.5 % (dpadv; 14.5.3 3.5 %). cross_f2_f1 (face 2 -> 1 near 90E, Tibet margin): airmass median 46.1 %, corr 0.79, sum 0.81; **dpadv median 26.8 %, corr 0.984, sum 0.918 = 14.5.3 exactly** (the 14.5.3 `_ref` run used the binary default dpadv). No port difference; the weighting choice matters at this crossing (dpadv better here, airmass better in the real-wind block tests T2/T5b of 14.5.3). |
+| P2d real winds, 5 days (+ P2f) | `tests_final/P2_advection/run_ADV.pbs` EXP=P2d: MERRA-2 4x5, 6 point receptors, 18 patch perturbations of the 14.5.3 `P2d_real_winds_5days_ref_airmass`, airmass | **Identical to 14.5.3** to all printed digits for every receptor (own perturbations: median 25.4 %, corr 0.905, sum 0.848; 14.5.3 the same). P2f: forcing-file seed vs built-in REGIONAL seed bit-identical in all 241 records (as 14.5.3) |
+| T2 block receptors, real winds, 5 days | `run_ADV.pbs` EXP=T2 (tadv_tools), receptors/perturbations of 14.5.3 `T2_block_receptor_real_winds_ref` | **Same as 14.5.3**: weighted error tropical block 4.4 % (14.5.3 4.5 %), jet block 5.5 % (5.2 %); point receptors 45.1 % / 33.5 % (44.5 / 34.9 %). Resolved-scale validation holds in 14.8.0 |
+| P2e real winds, 1 month, 6 block receptors | `run_ADV.pbs` EXP=P2e (tadv_tools), receptors/15 perturbations of 14.5.3 `P2e_real_winds_1month_blocks_ref`, ADV_ADJ_WEIGHT airmass | Weighted error jet 4.0 %, tropical 5.7 %, edge 7.3 %, corner_N 8.2 %, corner_S 12.9 %, polar 7.3 %; sum ratios 0.92-1.01. The 14.5.3 `_ref` run used the binary default **dpadv** (21-67 %), so it is not a like-for-like reference; with airmass the month-long block validation is new and holds at 4-13 % |
+| OSSE full-physics gradient (replaces P3b) | 4dvar_final E1.3_const_sat_148 (truth with 14.8.0, offline satellite sampler, 3 months, transport+convection+PBL): central FD (eps 0.05) of J_obs vs iteration-1 adjoint dJ/dsigma at 12 cells (`fd_check/run_fd148.pbs`) | **PASS, identical to 14.5.3**: slope 0.9940, corr 0.9993, weighted error 1.07 %, cells 0.961-1.009 (14.5.3: 0.9940 / 0.9993 / 1.07 %); iteration-1 gradient vs 14.5.3 corr 1.000000 |
+
+Run notes:
+- Both builds abort in finalize with `double free or corruption` AFTER the last step and the restart write
+  (MAPL/ESMF/MPT finalize on Pleiades; not adjoint-specific; output and checkpoint are complete). Test scripts accept a
+  run that reached its end time and wrote `gcchem_internal_checkpoint`. Not yet investigated.
+- One early 3-day attempt hung before the first step (0 steps in 2 h); not reproduced since.
+- 14.8.0 run dirs: History frequencies from `setCommonRunSettings.sh` apply only with `AutoUpdate_Diagnostics=ON`.
+- Upstream 14.8.0 `setCommonRunSettings.sh` (adjoint branch, ~line 737): `sed "s/^\([\t ]*\)'Adjoint',/\1'Adjoint',/"`
+  is a no-op, so an `#'Adjoint',` collection is never re-enabled for `Model_Phase=ADJOINT` (same for `SFEmissions`).
+  Tests enable it directly. Should be `s/^\([\t ]*\)#'Adjoint',/\1'Adjoint',/`.
+- Reverse (adjoint) runs print no "GCHP Date" progress lines in 14.8.0; they finish with the same finalize
+  `double free` after writing the final checkpoint.
+- P1: the old `column_fd_tools.py analyze` (mass-ratio regression) crashes on zero-mass columns (SVD not converged); the
+  `column_checks_v2.py` checks above are the pass criterion (same as 14.5.3). Before fix 5 the window-start (r=1 IC) record was missing.
+
+- P1 first run (stock 14.8.0 CO2 fluxes, sigma on Net_terrestrial_exch) gave the same ratios but a 9x smaller flux response; results kept in `P1_columns/stockflux_20261015/`.
+
+- P2 run notes: the first adjoint step reports one "Missing adjoint checkpoint file ...<window end>" + MAPL FAIL (status=-1) per rank; also in 14.5.3, harmless (run_P2.pbs allows exactly this).
+- 2026-10-15 /nobackupp27 outage (MDT failover, ~10:00-16:00) truncated some files written with sed -i in run dirs to 0 bytes (P2c adjoint GCHP.rc/input.nml, fd_w1 ExtData.rc); dirs rebuilt from the template.
+
+
+
+- 14.8.0 stock ExtData reads the (unused) ODIAC weekly factors with F2006-01-%d2 -> bracket failure on day 31 (any run crossing a 31st). Fixed in the CO2 template/OSSE dirs by loading factors 440/441/480 only for FOSSIL_CDIAC/CO2CORR (both off); no flux change.
+
+
