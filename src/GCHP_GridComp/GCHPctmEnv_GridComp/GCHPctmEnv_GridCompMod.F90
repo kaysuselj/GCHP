@@ -123,6 +123,7 @@ module GCHPctmEnv_GridComp
    integer :: correct_mass_flux_for_humidity
 #ifdef ADJOINT
    logical :: reverse_run_forward_massflux = .true.  ! see ADV_ADJ_MASSFLUX in Run
+   logical :: reverse_run_forward_courant  = .false. ! ADV_ADJ_METHOD: discrete_linear, see Run
 #endif
    
    class(Logger), pointer :: lgr => null()
@@ -991,6 +992,7 @@ module GCHPctmEnv_GridComp
 #ifdef ADJOINT
       integer :: reverseTime
       character(len=ESMF_MAXSTR) :: advAdjMassFlux
+      character(len=ESMF_MAXSTR) :: advAdjMethod
 #endif
 
       !================================
@@ -1055,6 +1057,20 @@ module GCHPctmEnv_GridComp
       reverse_run_forward_massflux = ( trim(advAdjMassFlux) == 'forward' )
       IF(MAPL_Am_I_Root() .and. firstRun) &
            WRITE(*,*) ' GIGCenv ADV_ADJ_MASSFLUX: ', trim(advAdjMassFlux)
+      ! ADV_ADJ_METHOD: discrete_linear (AdvCore) needs all inputs of the forward step,
+      ! so the reverse run also exports the forward Courant numbers with the sign
+      ! changed. FV3 builds the Courant number from the width of the upwind cell,
+      ! so the Courant numbers of the reversed wind differ from them near the cube
+      ! face edges (up to ~4 % at C24). reverse_wind_pure keeps the reversed-wind ones.
+      call MAPL_GetResource( ggState, advAdjMethod, 'ADV_ADJ_METHOD:', &
+                             default='reverse_wind_pure', RC=STATUS )
+      _VERIFY(STATUS)
+      reverse_run_forward_courant = ( trim(advAdjMethod) == 'discrete_linear' )
+      if ( reverse_run_forward_courant .and. .not. reverse_run_forward_massflux ) then
+         _ASSERT(.false., 'ADV_ADJ_METHOD discrete_linear needs ADV_ADJ_MASSFLUX: forward')
+      endif
+      IF(MAPL_Am_I_Root() .and. firstRun .and. reverse_run_forward_courant) &
+           WRITE(*,*) ' GIGCenv reverse run: forward Courant numbers (ADV_ADJ_METHOD discrete_linear)'
 #endif
 
       ! Compute the exports
@@ -1524,6 +1540,10 @@ module GCHPctmEnv_GridComp
                                          CXfwd, CYfwd, -dt)
                MFX_EXPORT = -MFXfwd
                MFY_EXPORT = -MFYfwd
+               if ( reverse_run_forward_courant ) then
+                  CX_EXPORT = -CXfwd
+                  CY_EXPORT = -CYfwd
+               endif
                DEALLOCATE( MFXfwd, MFYfwd, CXfwd, CYfwd )
             endif
          endif
