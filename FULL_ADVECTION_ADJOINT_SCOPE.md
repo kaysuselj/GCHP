@@ -10,7 +10,7 @@ not the transpose of the forward operator. What the tests show:
 
 | test | current result |
 |---|---|
-| P2a/P2d (8 m/s, face edge/corner) and P2c (tilted rotation) | identical to 14.5.3, errors concentrated at edges and corners |
+| P2a/P2d (8 m/s, face edge/corner) and P2c (tilted rotation) | errors concentrated at edges and corners |
 | T2 blocks, real winds, 5 days | 4.4 / 5.5 % |
 | P2e blocks, real winds, 1 month (airmass) | 4–13 % |
 | OSSE FD check, 12 cells | slope 0.994, weighted error 1.07 % |
