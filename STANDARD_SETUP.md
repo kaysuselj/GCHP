@@ -25,7 +25,7 @@ The old 14.5.3 paths of moved items are symlinks to the new places, so the stale
 | item | standard |
 |---|---|
 | Model | GCHP 14.8.0 with the adjoint port (MAPL 2.69, ESMF 8.6.1 from source) |
-| Adjoint binary | `code/build_adj/bin/gchp.ckpt_20261016` |
+| Adjoint binary | since 2026-10-20 **`code/build_disc/bin/gchp.ocn_20261020`** for all new runs (`setup_exp.sh` sets `GCHP_BIN`): one binary for RW and DL (`ADV_ADJ_METHOD` in the adjoint GCHP.rc) and the optional ocean control field (`ADJ_HEMCO_SFLUX2_DIAGN`); RW mode bit-identical to `gchp.ckpt_20261016` (V3 vs O7: J and TER gradient). Runs started earlier keep their binary (`gchp.ckpt_20261016` RW, `gchp.disc_20261020` DL) |
 | Forward-only binary (FD checks, truth runs that need no adjoint checkpoints) | `code/build_plain/bin/gchp.plain_20261014` (same forward) |
 | Checkpointing | `ADJ_CKPT_REDUCED: 1`. The adjoint reads only the fields it needs. The gradient is bit-identical to full checkpoints, 40–45 % faster. |
 | Advection adjoint | `ADV_ADJ_METHOD: reverse_wind_pure`, `ADV_ADJ_WEIGHT: airmass`, `ADV_ADJ_MASSFLUX: forward` |
