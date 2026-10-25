@@ -459,6 +459,12 @@ contains
                       DST_ID = CHEM,               &
                       SRC_ID = ADV,                &
                       __RC__ )
+      ! PLE / DryPLE of the forward step for the minimal adjoint checkpoints
+      ! (ADJ_CKPT_REDUCED: 2): AdvCore exports PLE = PLE1 and DryPLE = DryPLE1 of GCHPctmEnv
+      CALL MAPL_AddConnectivity ( GC, SRC_NAME = 'PLE1',    SRC_ID = ECTM, &
+                                      DST_NAME = 'PLE_ENV', DST_ID = CHEM, __RC__ )
+      CALL MAPL_AddConnectivity ( GC, SRC_NAME = 'DryPLE1',    SRC_ID = ECTM, &
+                                      DST_NAME = 'DryPLE_ENV', DST_ID = CHEM, __RC__ )
 #endif
 
       CALL MAPL_TerminateImport    ( GC,                         &
@@ -643,6 +649,10 @@ contains
    character(len=ESMF_MAXSTR)          :: ModelPhase
    logical                             :: isAdjoint
    logical, save                       :: firstRun = .true.
+#ifdef ADJOINT
+   integer                             :: adjCkptMode, adjCkptVerify
+   logical                             :: envFirst  ! adjoint: GCHPctmEnv before GCHPchem
+#endif
  
 !=============================================================================
 
@@ -676,6 +686,14 @@ contains
     isAdjoint = .false.
     if (trim(ModelPhase) == 'ADJOINT') &
          isAdjoint = .true.
+    ! Minimal adjoint checkpoints (ADJ_CKPT_REDUCED: 2) and their check (ADJ_CKPT_VERIFY: 1):
+    ! GCHPchem takes PLE / DryPLE of the forward step from GCHPctmEnv, so in the adjoint
+    ! GCHPctmEnv runs before GCHPchem (it imports nothing from GCHPchem).
+    CALL ESMF_ConfigGetAttribute( CF, adjCkptMode, Label="ADJ_CKPT_REDUCED:", &
+                                  Default=0, __RC__ )
+    CALL ESMF_ConfigGetAttribute( CF, adjCkptVerify, Label="ADJ_CKPT_VERIFY:", &
+                                  Default=0, __RC__ )
+    envFirst = isAdjoint .and. ( adjCkptMode == 2 .or. adjCkptVerify == 1 )
 #endif
 
     ! Start timers
@@ -882,6 +900,17 @@ contains
           endif
 
        ENDIF
+
+       IF ( envFirst ) THEN
+          call MAPL_TimerOn ( STATE, GCNames(ECTM) )
+          call ESMF_GridCompRun ( GCS(ECTM),               &
+                                  importState = GIM(ECTM), &
+                                  exportState = GEX(ECTM), &
+                                  clock       = CLOCK,     &
+                                  userRC      = STATUS  )
+          _VERIFY(STATUS)
+          call MAPL_TimerOff( STATE, GCNames(ECTM) )
+       ENDIF
     ! Chemistry
     !------------------
 
@@ -923,6 +952,7 @@ contains
        _VERIFY(STATUS)
     endif
 
+    IF ( .not. envFirst ) THEN
     call MAPL_TimerOn ( STATE, GCNames(ECTM) )
     call ESMF_GridCompRun ( GCS(ECTM),               &
                             importState = GIM(ECTM), &
@@ -932,6 +962,7 @@ contains
     _VERIFY(STATUS)
 
     call MAPL_TimerOff( STATE, GCNames(ECTM) )
+    ENDIF
 
     if ( MemDebugLevel > 0 ) THEN
        call ESMF_VMBarrier(VM, RC=STATUS)
