@@ -31,7 +31,7 @@ The old 14.5.3 paths of moved items are symlinks to the new places, so the stale
 | Advection adjoint | `ADV_ADJ_METHOD: reverse_wind_pure`, `ADV_ADJ_WEIGHT: airmass`, `ADV_ADJ_MASSFLUX: forward` |
 | Resolution / step | C24, 1800 s (C48 being tested, see §4) |
 | 4D-Var nodes | 2 Broadwell nodes (48 cores) |
-| 4D-Var stopping | `--ftol 0.02` (stop when J improves by < 2 %; E1.3 gets there around iteration 10) |
+| 4D-Var stopping | `--max 20 iterations, ftol 0.005 on 3 consecutive steps (since 2026-10-21; was ftol 0.02)` (stop when J improves by < 2 %; E1.3 gets there around iteration 10) |
 | Plots | `--plot-every 5` (plus iteration 1, the convergence plot and the end) |
 | Restart | `DELP_DRY = 0` (14.8.0 first-step pressure scaling has no adjoint) |
 
@@ -43,7 +43,7 @@ The 14.5.3 full-checkpoint setup took about 53 h.
 - **4D-Var OSSE:**
   `4dvar_osse/setup_exp.sh <name> --prior-err "<opts>"`
   - The defaults are now the standard: `--gchp 14.8`, which uses `control_files_148_ckpt_reduced/` and the
-    14.8.0 truth observations `obs148/`, plus `--ftol 0.02`, `--plot-every 5` and `--nodes 2`. The old
+    14.8.0 truth observations `obs148/`, plus `--max 20 iterations, ftol 0.005 on 3 consecutive steps (since 2026-10-21; was ftol 0.02)`, `--plot-every 5` and `--nodes 2`. The old
     script is kept as `setup_exp.sh.pre_default148_20261016`.
   - `--gchp 14.8-fullckpt` gives full checkpoints (only for comparisons).
   - `--res 48` (2026-10-19) sets up a C48 experiment: `control_files_148_c48/` (MERRA-2 2x2.5 met, reduced checkpoints),

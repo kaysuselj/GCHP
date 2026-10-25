@@ -452,6 +452,13 @@ contains
                       DST_ID = ADV,                &
                       SRC_ID = CHEM,               &
                       __RC__ )
+
+      ! trajectory of the discrete_linear advection adjoint (tracer before advection)
+      CALL MAPL_AddConnectivity ( GC,                          &
+                      SHORT_NAME = (/ 'TRAJ_PREADV' /), &
+                      DST_ID = CHEM,               &
+                      SRC_ID = ADV,                &
+                      __RC__ )
 #endif
 
       CALL MAPL_TerminateImport    ( GC,                         &
