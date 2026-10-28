@@ -460,7 +460,7 @@ contains
                       SRC_ID = ADV,                &
                       __RC__ )
       ! PLE / DryPLE of the forward step for the minimal adjoint checkpoints
-      ! (ADJ_CKPT_REDUCED: 2): AdvCore exports PLE = PLE1 and DryPLE = DryPLE1 of GCHPctmEnv
+      ! (ADJ_CKPT: 1 or 2): AdvCore exports PLE = PLE1 and DryPLE = DryPLE1 of GCHPctmEnv
       CALL MAPL_AddConnectivity ( GC, SRC_NAME = 'PLE1',    SRC_ID = ECTM, &
                                       DST_NAME = 'PLE_ENV', DST_ID = CHEM, __RC__ )
       CALL MAPL_AddConnectivity ( GC, SRC_NAME = 'DryPLE1',    SRC_ID = ECTM, &
@@ -686,14 +686,15 @@ contains
     isAdjoint = .false.
     if (trim(ModelPhase) == 'ADJOINT') &
          isAdjoint = .true.
-    ! Minimal adjoint checkpoints (ADJ_CKPT_REDUCED: 2) and their check (ADJ_CKPT_VERIFY: 1):
+    ! Minimal adjoint checkpoints (ADJ_CKPT: 1 or 2) and their check (ADJ_CKPT_VERIFY: 1):
     ! GCHPchem takes PLE / DryPLE of the forward step from GCHPctmEnv, so in the adjoint
     ! GCHPctmEnv runs before GCHPchem (it imports nothing from GCHPchem).
-    CALL ESMF_ConfigGetAttribute( CF, adjCkptMode, Label="ADJ_CKPT_REDUCED:", &
-                                  Default=0, __RC__ )
+    ! GCHP.rc ADJ_CKPT: 1 and 2 are minimal checkpoints (default 1), 3 reduced, 4 full
+    CALL ESMF_ConfigGetAttribute( CF, adjCkptMode, Label="ADJ_CKPT:", &
+                                  Default=1, __RC__ )
     CALL ESMF_ConfigGetAttribute( CF, adjCkptVerify, Label="ADJ_CKPT_VERIFY:", &
                                   Default=0, __RC__ )
-    envFirst = isAdjoint .and. ( adjCkptMode == 2 .or. adjCkptVerify == 1 )
+    envFirst = isAdjoint .and. ( adjCkptMode == 1 .or. adjCkptMode == 2 .or. adjCkptVerify == 1 )
 #endif
 
     ! Start timers
